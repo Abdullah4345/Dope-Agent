@@ -3,11 +3,13 @@ import json
 import csv
 import os
 import subprocess
+from PIL import Image, ImageDraw
 
 DATA_DIR = "data"
 TROPHY_CSV = os.path.join(DATA_DIR, "trophies.csv")
 CONFIG_JSON = os.path.join(DATA_DIR, "config.json")
 EDITOR_APP_PATH = "maingui.py"  # Update this path!
+TEMP_ICON_PATH = os.path.join(DATA_DIR, "temp_profile_icon.png")
 
 
 def load_config():
@@ -26,13 +28,56 @@ def calculate_points(trophies):
     return sum(int(trophies[t]) * TROPHY_VALUES[t] for t in TROPHY_VALUES)
 
 
+def make_circle_icon(image_path, output_path, size=64):
+    try:
+        im = Image.open(image_path).convert("RGBA")
+        # Crop to square
+        min_side = min(im.size)
+        left = (im.width - min_side) // 2
+        top = (im.height - min_side) // 2
+        im = im.crop((left, top, left + min_side, top + min_side))
+        im = im.resize((size, size), Image.LANCZOS)
+        # Create circular mask
+        mask = Image.new('L', (size, size), 0)
+        draw = ImageDraw.Draw(mask)
+        draw.ellipse((0, 0, size, size), fill=255)
+        im.putalpha(mask)
+        im.save(output_path)
+        return output_path
+    except Exception:
+        return os.path.join(DATA_DIR, "menu_icon.png")
+
+
 class PSNTrophyMenuApp(rumps.App):
     def __init__(self):
+        self.config = load_config()
+        self.trophies = load_trophies()
+        self.points = calculate_points(self.trophies)
+        default_icon = os.path.join(DATA_DIR, "menu_icon.png")
+        super().__init__("🎮", icon=default_icon, menu=[
+            "Loading...",
+            None,
+            rumps.MenuItem("Edit Profile", callback=self.launch_editor),
+            rumps.MenuItem("Quit", callback=self.quit_app)
+        ])
+        self.update_subtitle_and_icon()
+        self.timer = rumps.Timer(self.refresh_menu, 1)  # every 1 second
+        self.timer.start()
+
+    def refresh_menu(self, _):
+        self.update_subtitle_and_icon()
+        self.menu.clear()
+        self.menu.add(self.subtitle)
+        self.menu.add(None)
+        self.menu.add(rumps.MenuItem(
+            "Edit Profile", callback=self.launch_editor))
+        self.menu.add(rumps.MenuItem("Quit", callback=self.quit_app))
+
+    def update_subtitle_and_icon(self):
         config = load_config()
         trophies = load_trophies()
         points = calculate_points(trophies)
 
-        # Level and percentage calculation (copied from your main copy 3.py)
         LEVEL_THRESHOLDS = [
             (1, 99, 60),
             (100, 199, 90),
@@ -61,24 +106,18 @@ class PSNTrophyMenuApp(rumps.App):
         percent = int((current / required) * 100) if required else 100
         trophy_total = sum(int(trophies[t]) for t in trophies)
 
-        subtitle = f"{config['username']} | Lv. {level} | {percent}% | {trophy_total} trophies"
+        self.subtitle = f"{config['username']} | Lv. {level} | {percent}% | {trophy_total} trophies"
 
-        # Use profile picture if it exists, else fallback to default icon
         profile_icon = config.get("profile_path", "")
         if not (profile_icon and os.path.exists(profile_icon)):
             profile_icon = os.path.join(DATA_DIR, "menu_icon.png")
-        super().__init__("🎮", icon=profile_icon, menu=[
-            subtitle,
-            None,
-            "Edit Profile",
-            "Quit"
-        ])
+        # Always make the icon circular
+        self.profile_icon = make_circle_icon(profile_icon, TEMP_ICON_PATH)
+        self.icon = self.profile_icon
 
-    @rumps.clicked("Edit Profile")
     def launch_editor(self, _):
         subprocess.Popen(["python3", EDITOR_APP_PATH])
 
-    @rumps.clicked("Quit")
     def quit_app(self, _):
         rumps.quit_application()
 

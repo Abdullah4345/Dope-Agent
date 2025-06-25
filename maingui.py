@@ -36,7 +36,8 @@ TROPHY_PNGS = {
 def ensure_data_files():
     os.makedirs(DATA_DIR, exist_ok=True)
     if not os.path.exists(CONFIG_JSON):
-        default_config = {"username": "", "profile_path": ""}
+        default_config = {"username": "",
+                          "profile_path": "", "banner_path": ""}
         with open(CONFIG_JSON, 'w') as f:
             json.dump(default_config, f)
     if not os.path.exists(TROPHY_CSV):
@@ -143,6 +144,7 @@ class ClickableImageView(NSImageView):
                 save_config(self.config)
                 # Update the image in the view
                 new_img = NSImage.alloc().initWithContentsOfFile_(url.path())
+                new_img = crop_to_square(new_img)
                 self.setImage_(new_img)
 
 
@@ -226,8 +228,10 @@ def open_native_window():
     profile_pic_path = config.get("profile_path", "")
     if os.path.exists(profile_pic_path):
         profile_img = NSImage.alloc().initWithContentsOfFile_(profile_pic_path)
+        profile_img = crop_to_square(profile_img)
     else:
         profile_img = NSImage.imageNamed_("NSUser")
+        profile_img = crop_to_square(profile_img)
     # Centered profile image
     img_width = 100
     profile_img_view = ClickableImageView.alloc().initWithConfig_(config).initWithFrame_(
@@ -236,6 +240,11 @@ def open_native_window():
     profile_img_view.setImage_(profile_img)
     profile_img_view.setImageScaling_(
         AppKit.NSImageScaleProportionallyUpOrDown)
+    # Make the image view circular
+    profile_img_view.setWantsLayer_(True)
+    layer = profile_img_view.layer()
+    layer.setCornerRadius_(img_width / 2)
+    layer.setMasksToBounds_(True)
     visual_effect.addSubview_(profile_img_view)
 
     # Username edit field (hidden by default)
@@ -390,6 +399,29 @@ def open_native_window():
         icon_x + icon_size + 10, icon_y + 8, 120, 24))
     visual_effect.addSubview_(level_label)
 
+    # Banner view for profile (background)
+    banner_height = 70  # Half the profile image height (img_width // 2)
+    banner_width = window_width
+    banner_y = 372  # Start at the very top
+
+    banner_path = config.get("banner_path", "")
+    banner_img = None
+    if banner_path and os.path.exists(banner_path):
+        banner_img = NSImage.alloc().initWithContentsOfFile_(banner_path)
+        banner_img = crop_to_banner(banner_img, banner_width, banner_height)
+    if not banner_img:
+        banner_img = NSImage.imageNamed_("NSColorPanel")
+        banner_img = crop_to_banner(banner_img, banner_width, banner_height)
+
+    banner_view = ClickableBannerView.alloc().initWithConfig_(config).initWithFrame_(
+        NSMakeRect(0, banner_y, banner_width, banner_height)
+    )
+    banner_view.setImage_(banner_img)
+    banner_view.setImageScaling_(AppKit.NSImageScaleAxesIndependently)
+    visual_effect.addSubview_positioned_relativeTo_(
+        banner_view, AppKit.NSWindowBelow, None
+    )
+
     save_helper = SaveHelper.alloc().init()
     save_helper.setAll_((config, fields, trophies, window))
     delegate = WindowDelegate.alloc().initWithSaveHelper_(save_helper)
@@ -445,5 +477,78 @@ def get_level_icon(level):
         return resource_path("data/1-99.png")
 
 
-if __name__ == '__main__':
+def crop_to_square(nsimage):
+    """Crop the NSImage to a centered square and return a new NSImage."""
+    size = min(nsimage.size().width, nsimage.size().height)
+    x = (nsimage.size().width - size) / 2
+    y = (nsimage.size().height - size) / 2
+    rect = AppKit.NSMakeRect(x, y, size, size)
+    cropped = AppKit.NSImage.alloc().initWithSize_((size, size))
+    cropped.lockFocus()
+    nsimage.drawInRect_fromRect_operation_fraction_(
+        AppKit.NSMakeRect(0, 0, size, size),
+        rect,
+        AppKit.NSCompositingOperationCopy,
+        1.0
+    )
+    cropped.unlockFocus()
+    return cropped
+
+
+class ClickableBannerView(NSImageView):
+    def initWithConfig_(self, config):
+        self = objc.super(ClickableBannerView, self).init()
+        self.config = config
+        return self
+
+    def mouseDown_(self, event):
+        panel = NSOpenPanel.openPanel()
+        panel.setCanChooseFiles_(True)
+        panel.setCanChooseDirectories_(False)
+        panel.setAllowedFileTypes_(["png", "jpg", "jpeg"])
+        if panel.runModal():
+            url = panel.URLs()[0] if panel.URLs() else None
+            if url:
+                self.config["banner_path"] = url.path()
+                save_config(self.config)
+                new_img = NSImage.alloc().initWithContentsOfFile_(url.path())
+                # Crop/resize the banner to fit the view
+                frame = self.frame()
+                new_img = crop_to_banner(new_img, int(
+                    frame.size.width), int(frame.size.height))
+                self.setImage_(new_img)
+
+
+def crop_to_banner(nsimage, target_width, target_height):
+    """Crop and scale NSImage to fill a banner rectangle."""
+    img_w = nsimage.size().width
+    img_h = nsimage.size().height
+    target_ratio = target_width / target_height
+    img_ratio = img_w / img_h
+
+    # Determine crop area
+    if img_ratio > target_ratio:
+        # Image is wider than target: crop sides
+        new_w = img_h * target_ratio
+        x = (img_w - new_w) / 2
+        rect = AppKit.NSMakeRect(x, 0, new_w, img_h)
+    else:
+        # Image is taller than target: crop top/bottom
+        new_h = img_w / target_ratio
+        y = (img_h - new_h) / 2
+        rect = AppKit.NSMakeRect(0, y, img_w, new_h)
+
+    cropped = AppKit.NSImage.alloc().initWithSize_((target_width, target_height))
+    cropped.lockFocus()
+    nsimage.drawInRect_fromRect_operation_fraction_(
+        AppKit.NSMakeRect(0, 0, target_width, target_height),
+        rect,
+        AppKit.NSCompositingOperationCopy,
+        1.0
+    )
+    cropped.unlockFocus()
+    return cropped
+
+
+if __name__ == "__main__":
     open_native_window()
