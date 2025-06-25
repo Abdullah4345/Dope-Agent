@@ -6,6 +6,7 @@ from Cocoa import NSWindow, NSApp, NSImageView, NSImage, NSTextField, NSButton, 
 from Foundation import NSObject, NSMakeRect
 import AppKit
 import objc
+from WebKit import WKWebView, WKWebViewConfiguration
 
 
 def resource_path(relative_path):
@@ -31,6 +32,7 @@ TROPHY_PNGS = {
     "gold": resource_path("data/gold.png"),
     "platinum": resource_path("data/platinum.png")
 }
+TODO_JSON = resource_path("data/todo.json")
 
 
 def ensure_data_files():
@@ -72,6 +74,18 @@ def save_trophies(trophies):
                                 "bronze", "silver", "gold", "platinum"])
         writer.writeheader()
         writer.writerow(row)
+
+
+def load_todos():
+    if not os.path.exists(TODO_JSON):
+        return []
+    with open(TODO_JSON, "r") as f:
+        return json.load(f)
+
+
+def save_todos(todos):
+    with open(TODO_JSON, "w") as f:
+        json.dump(todos, f)
 
 
 class ButtonHelper(NSObject):
@@ -194,82 +208,92 @@ class UsernameEditField(NSTextField):
             save_config(self.config)
 
 
+class TodoAddHelper(NSObject):
+    def initWithTodoPanel_(self, todo_panel):
+        self = objc.super(TodoAddHelper, self).init()
+        self.todo_panel = todo_panel
+        return self
+
+    def addTodo_(self, sender):
+        field = self.todo_panel["input"]
+        item = field.stringValue().strip()
+        if item:
+            todos = load_todos()
+            todos.append(item)
+            save_todos(todos)
+            field.setStringValue_("")
+            self.todo_panel["refresh"]()
+
+
+class TodoRemoveHelper(NSObject):
+    def initWithTodoPanel_andIndex_(self, todo_panel, idx):
+        self = objc.super(TodoRemoveHelper, self).init()
+        self.todo_panel = todo_panel
+        self.idx = idx
+        return self
+
+    def removeTodo_(self, sender):
+        todos = load_todos()
+        if 0 <= self.idx < len(todos):
+            del todos[self.idx]
+            save_todos(todos)
+            self.todo_panel["refresh"]()
+
+
+class TodoClearHelper(NSObject):
+    def initWithTodoPanel_(self, todo_panel):
+        self = objc.super(TodoClearHelper, self).init()
+        self.todo_panel = todo_panel
+        return self
+
+    def clearTodos_(self, sender):
+        save_todos([])
+        self.todo_panel["refresh"]()
+
+
+class ShowTodoHelper(NSObject):
+    def initWithWindow_andTodoVisual_(self, window, todo_visual):
+        self = objc.super(ShowTodoHelper, self).init()
+        self.window = window
+        self.todo_visual = todo_visual
+        return self
+
+    def showTodo_(self, sender):
+        self.todo_visual.setHidden_(False)
+        frame = self.window.frame()
+        new_frame = NSMakeRect(
+            frame.origin.x,
+            frame.origin.y,
+            840,  # window_width_expanded
+            470   # window_height
+        )
+        self.window.setFrame_display_animate_(new_frame, True)
+        # Update content view and visual_effect frame after animation
+        self.window.contentView().setFrame_(NSMakeRect(0, 0, 840, 470))
+        self.window.contentView().superview().setFrame_(NSMakeRect(0, 0, 840, 470))
+        self.window.contentView().subviews()[0].setFrame_(
+            NSMakeRect(0, 0, 840, 470))  # visual_effect
+        self.todo_visual.setFrame_(NSMakeRect(420, 0, 420, 470))
+        sender.setHidden_(True)
+
+
+main_window = None
+
+
 def open_native_window():
+    global main_window
     ensure_data_files()
     config = load_config()
     trophies = load_trophies()
 
-    # Ensure NSApp is initialized
-    AppKit.NSApplication.sharedApplication()
-
-    NSApp.activateIgnoringOtherApps_(True)
-    screen_frame = AppKit.NSScreen.mainScreen().frame()
-    window_width = 420
-    window_height = 470
-    x = (screen_frame.size.width - window_width) / 2
-    y = (screen_frame.size.height - window_height) / 2
-
-    window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-        NSMakeRect(x, y, window_width, window_height),
-        NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskFullSizeContentView,
-        NSBackingStoreBuffered,
-        False
+    # Calculate points and percent for progress bar
+    points = (
+        int(trophies.get("bronze", 0)) * 15 +
+        int(trophies.get("silver", 0)) * 30 +
+        int(trophies.get("gold", 0)) * 90 +
+        int(trophies.get("platinum", 0)) * 300
     )
-    window.setTitle_("Edit PSN Profile")
-    window.setOpaque_(False)
-    visual_effect = NSVisualEffectView.alloc(
-    ).initWithFrame_(window.contentView().frame())
-    visual_effect.setMaterial_(NSVisualEffectMaterialHUDWindow)
-    visual_effect.setBlendingMode_(0)
-    visual_effect.setState_(1)
-    window.setContentView_(visual_effect)
 
-    fields = {}
-    profile_pic_path = config.get("profile_path", "")
-    if os.path.exists(profile_pic_path):
-        profile_img = NSImage.alloc().initWithContentsOfFile_(profile_pic_path)
-        profile_img = crop_to_square(profile_img)
-    else:
-        profile_img = NSImage.imageNamed_("NSUser")
-        profile_img = crop_to_square(profile_img)
-    # Centered profile image
-    img_width = 100
-    profile_img_view = ClickableImageView.alloc().initWithConfig_(config).initWithFrame_(
-        NSMakeRect((window_width - img_width) // 2, 320, img_width, img_width)
-    )
-    profile_img_view.setImage_(profile_img)
-    profile_img_view.setImageScaling_(
-        AppKit.NSImageScaleProportionallyUpOrDown)
-    # Make the image view circular
-    profile_img_view.setWantsLayer_(True)
-    layer = profile_img_view.layer()
-    layer.setCornerRadius_(img_width / 2)
-    layer.setMasksToBounds_(True)
-    visual_effect.addSubview_(profile_img_view)
-
-    # Username edit field (hidden by default)
-    username_field = UsernameEditField.alloc().init()
-    username_field.setFrame_(NSMakeRect(
-        (window_width - 200) // 2, 290, 200, 24))
-    username = config.get("username", "")
-    username_field.setStringValue_(username)
-    username_field.setHidden_(True)
-    visual_effect.addSubview_(username_field)
-    fields["username"] = username_field
-
-    # Username label (shown by default)
-    username_label = ClickableLabel.labelWithString_(username)
-    username_label.setFrame_(NSMakeRect(
-        (window_width - 200) // 2, 290, 200, 24))
-    username_label.setAlignment_(AppKit.NSCenterTextAlignment)
-    username_label.setFont_(AppKit.NSFont.systemFontOfSize_(16))
-    username_label.set_field_and_config(username_field, config)
-    visual_effect.addSubview_(username_label)
-
-    # Link the label to the field (so the field can update the label)
-    username_field.set_label_and_config(username_label, config)
-
-    # Calculate level and percent for progress bar
     LEVEL_THRESHOLDS = [
         (1, 99, 60),
         (100, 199, 90),
@@ -294,14 +318,100 @@ def open_native_window():
                 level += 1
         return 999, points, 1
 
-    points = sum(int(trophies[t]) * v for t, v in zip(["bronze",
-                 "silver", "gold", "platinum"], [15, 30, 90, 300]))
     level, current, required = calculate_level(points)
     percent = int((current / required) * 100) if required else 100
 
-    # Add progress bar just above trophies row
+    AppKit.NSApplication.sharedApplication()
+    NSApp.activateIgnoringOtherApps_(True)
+    screen_frame = AppKit.NSScreen.mainScreen().frame()
+    window_width = 840
+    window_height = 470
+    left_panel_width = 420
+
+    x = (screen_frame.size.width - window_width) / 2
+    y = (screen_frame.size.height - window_height) / 2
+
+    window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+        NSMakeRect(x, y, window_width, window_height),
+        NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskFullSizeContentView | AppKit.NSWindowStyleMaskResizable,
+        NSBackingStoreBuffered,
+        False
+    )
+    window.setTitle_("Edit PSN Profile")
+    window.setOpaque_(False)
+    visual_effect = NSVisualEffectView.alloc(
+    ).initWithFrame_(window.contentView().frame())
+    visual_effect.setMaterial_(NSVisualEffectMaterialHUDWindow)
+    visual_effect.setBlendingMode_(0)
+    visual_effect.setState_(1)
+    window.setContentView_(visual_effect)
+
+    # --- Add left panel view (move this up here!) ---
+    left_panel = AppKit.NSView.alloc().initWithFrame_(
+        NSMakeRect(0, 0, left_panel_width, window_height)
+    )
+    left_panel.setAutoresizingMask_(AppKit.NSViewHeightSizable)
+    visual_effect.addSubview_(left_panel)
+
+    # --- Make right half background a bit dark ---
+    right_overlay = AppKit.NSView.alloc().initWithFrame_(
+        NSMakeRect(left_panel_width, 0, window_width -
+                   left_panel_width, window_height)
+    )
+    right_overlay.setWantsLayer_(True)
+    right_overlay.layer().setBackgroundColor_(
+        AppKit.NSColor.blackColor().colorWithAlphaComponent_(0.35).CGColor()
+    )
+    visual_effect.addSubview_positioned_relativeTo_(
+        right_overlay, AppKit.NSWindowBelow, None
+    )
+
+    fields = {}
+    profile_pic_path = config.get("profile_path", "")
+    if os.path.exists(profile_pic_path):
+        profile_img = NSImage.alloc().initWithContentsOfFile_(profile_pic_path)
+        profile_img = crop_to_square(profile_img)
+    else:
+        profile_img = NSImage.imageNamed_("NSUser")
+        profile_img = crop_to_square(profile_img)
+    img_width = 100
+    # Centered in left panel
+    profile_img_view = ClickableImageView.alloc().initWithConfig_(config).initWithFrame_(
+        NSMakeRect((left_panel_width - img_width) //
+                   2, 320, img_width, img_width)
+    )
+    profile_img_view.setImage_(profile_img)
+    profile_img_view.setImageScaling_(
+        AppKit.NSImageScaleProportionallyUpOrDown)
+    profile_img_view.setWantsLayer_(True)
+    layer = profile_img_view.layer()
+    layer.setCornerRadius_(img_width / 2)
+    layer.setMasksToBounds_(True)
+    visual_effect.addSubview_(profile_img_view)
+
+    # Username edit field (hidden by default)
+    username_field = UsernameEditField.alloc().init()
+    username_field.setFrame_(NSMakeRect(
+        (left_panel_width - 200) // 2, 290, 200, 24))
+    username = config.get("username", "")
+    username_field.setStringValue_(username)
+    username_field.setHidden_(True)
+    visual_effect.addSubview_(username_field)
+    fields["username"] = username_field
+
+    # Username label (shown by default)
+    username_label = ClickableLabel.labelWithString_(username)
+    username_label.setFrame_(NSMakeRect(
+        (left_panel_width - 200) // 2, 290, 200, 24))
+    username_label.setAlignment_(AppKit.NSCenterTextAlignment)
+    username_label.setFont_(AppKit.NSFont.systemFontOfSize_(16))
+    username_label.set_field_and_config(username_field, config)
+    visual_effect.addSubview_(username_label)
+    username_field.set_label_and_config(username_label, config)
+
+    # Progress bar just above trophies row
     progress_bar = AppKit.NSProgressIndicator.alloc().initWithFrame_(
-        NSMakeRect(30, 200, window_width - 100, 16)  # leave space for % label
+        NSMakeRect(30, 200, left_panel_width - 100, 16)
     )
     progress_bar.setIndeterminate_(False)
     progress_bar.setMinValue_(0)
@@ -310,24 +420,22 @@ def open_native_window():
     progress_bar.setStyle_(AppKit.NSProgressIndicatorBarStyle)
     visual_effect.addSubview_(progress_bar)
 
-    # Add percentage label (white text)
     percent_label = NSTextField.labelWithString_(f"{percent}%")
     percent_label.setTextColor_(AppKit.NSColor.whiteColor())
     percent_label.setBackgroundColor_(AppKit.NSColor.clearColor())
     percent_label.setAlignment_(AppKit.NSCenterTextAlignment)
-    percent_label.setFrame_(NSMakeRect(window_width - 60, 193, 50, 24))
+    percent_label.setFrame_(NSMakeRect(left_panel_width - 60, 193, 50, 24))
     percent_label.setFont_(AppKit.NSFont.boldSystemFontOfSize_(13))
     visual_effect.addSubview_(percent_label)
 
-    # Move trophies row up
-    y_img = 140   # was 80
-    y_field = 110  # was 40
-
+    # Trophies row
+    y_img = 140
+    y_field = 110
     trophy_types = ["platinum", "gold", "silver", "bronze"]
     num_trophies = len(trophy_types)
     img_size = 48
-    margin = 30  # left/right margin
-    available_width = window_width - 2 * margin
+    margin = 30
+    available_width = left_panel_width - 2 * margin
     spacing = (available_width - num_trophies * img_size) // (num_trophies - 1)
     x_offset = margin
 
@@ -342,7 +450,6 @@ def open_native_window():
         img_view.setImage_(nsimg)
         visual_effect.addSubview_(img_view)
 
-        # Edit field (hidden by default)
         trophy_field = UsernameEditField.alloc().init()
         trophy_field.setFrame_(NSMakeRect(x_offset, y_field, img_size, 24))
         trophy_field.setStringValue_(trophies.get(name, "0"))
@@ -350,20 +457,15 @@ def open_native_window():
         visual_effect.addSubview_(trophy_field)
         fields[name] = trophy_field
 
-        # Label (shown by default)
         trophy_label = ClickableLabel.labelWithString_(trophies.get(name, "0"))
         trophy_label.setFrame_(NSMakeRect(x_offset, y_field, img_size, 24))
         trophy_label.setAlignment_(AppKit.NSCenterTextAlignment)
         trophy_label.setFont_(AppKit.NSFont.systemFontOfSize_(13))
         trophy_label.set_field_and_config(trophy_field, trophies)
         visual_effect.addSubview_(trophy_label)
-
-        # Link label to field and field to label
         trophy_field.set_label_and_config(trophy_label, trophies)
-        # Store the trophy name for saving
         trophy_field.trophy_name = name
 
-        # Trophy name label (wider for "Platinum")
         label = NSTextField.labelWithString_(name.title())
         label.setAlignment_(AppKit.NSCenterTextAlignment)
         label.setFrame_(NSMakeRect(
@@ -381,7 +483,7 @@ def open_native_window():
 
     icon_size = 40
     icon_x = 120
-    icon_y = 240  # Adjust as needed to fit your layout
+    icon_y = 240
     level_icon_view = NSImageView.alloc().initWithFrame_(
         NSMakeRect(icon_x, icon_y, icon_size, icon_size)
     )
@@ -389,7 +491,6 @@ def open_native_window():
     level_icon_view.setImageScaling_(AppKit.NSImageScaleProportionallyUpOrDown)
     visual_effect.addSubview_(level_icon_view)
 
-    # Level label next to icon
     level_label = NSTextField.labelWithString_(f"Level {level}")
     level_label.setFont_(AppKit.NSFont.boldSystemFontOfSize_(18))
     level_label.setTextColor_(AppKit.NSColor.whiteColor())
@@ -401,7 +502,7 @@ def open_native_window():
 
     # Banner view for profile (background)
     banner_height = 70  # Half the profile image height (img_width // 2)
-    banner_width = window_width
+    banner_width = 420
     banner_y = 372  # Start at the very top
 
     banner_path = config.get("banner_path", "")
@@ -422,34 +523,261 @@ def open_native_window():
         banner_view, AppKit.NSWindowBelow, None
     )
 
-    save_helper = SaveHelper.alloc().init()
-    save_helper.setAll_((config, fields, trophies, window))
-    delegate = WindowDelegate.alloc().initWithSaveHelper_(save_helper)
-    window.setDelegate_(delegate)
-    save_btn = NSButton.alloc().initWithFrame_(NSMakeRect(160, 20, 100, 32))
-    save_btn.setTitle_("Save")
-    save_btn.setTarget_(save_helper)
-    save_btn.setAction_("saveChanges:")
-    visual_effect.addSubview_(save_btn)
+    # --- Modern browser bar (right side, above browser) ---
+    bar_height = 60  # or 50, but use only one value!
+    bar_y = window_height - bar_height
+    bar_x = left_panel_width
+    bar_width = window_width - left_panel_width
 
-    # When editing is finished (on Enter or focus lost), update label and hide field
-    def end_editing(sender):
-        new_name = sender.stringValue()
-        username_label.setStringValue_(new_name)
-        sender.setHidden_(True)
-        username_label.setHidden_(False)
-        config["username"] = new_name
-        save_config(config)
+    browser_bar = NSVisualEffectView.alloc().initWithFrame_(
+        NSMakeRect(bar_x, bar_y, bar_width, bar_height)
+    )
+    browser_bar.setMaterial_(NSVisualEffectMaterialHUDWindow)
+    browser_bar.setBlendingMode_(0)
+    browser_bar.setState_(1)
+    browser_bar.setHidden_(True)
+    visual_effect.addSubview_(browser_bar)
 
-    username_field.setTarget_(username_field)
-    username_field.setAction_("endEditing:")
-    # Patch the method to call our Python function
+    # --- Add browser to the right side, initially hidden ---
+    config = WKWebViewConfiguration.alloc().init()
+    browser = WKWebView.alloc().initWithFrame_configuration_(
+        NSMakeRect(
+            left_panel_width,
+            0,  # y=0, bottom of window
+            window_width - left_panel_width,
+            window_height - bar_height  # leave space for nav bar
+        ),
+        config
+    )
+    browser.setAutoresizingMask_(
+        AppKit.NSViewWidthSizable | AppKit.NSViewHeightSizable)
+    url = AppKit.NSURL.URLWithString_("https://psnprofiles.com")
+    request = AppKit.NSURLRequest.requestWithURL_(url)
+    browser.loadRequest_(request)
+    browser.setHidden_(True)
+    visual_effect.addSubview_(browser)
 
-    def endEditing_(self, sender):
-        end_editing(self)
-    username_field.endEditing_ = endEditing_.__get__(
-        username_field, NSTextField)
+    # Back button
+    back_btn = NSButton.alloc().initWithFrame_(NSMakeRect(8, 4, 28, 28))
+    back_btn.setTitle_("⟨")
+    back_btn.setFont_(AppKit.NSFont.systemFontOfSize_(18))
+    browser_bar.addSubview_(back_btn)
 
+    # Forward button
+    fwd_btn = NSButton.alloc().initWithFrame_(NSMakeRect(40, 4, 28, 28))
+    fwd_btn.setTitle_("⟩")
+    fwd_btn.setFont_(AppKit.NSFont.systemFontOfSize_(18))
+    browser_bar.addSubview_(fwd_btn)
+
+    # Refresh button
+    refresh_btn = NSButton.alloc().initWithFrame_(NSMakeRect(72, 4, 28, 28))
+    refresh_btn.setTitle_("⟳")
+    refresh_btn.setFont_(AppKit.NSFont.systemFontOfSize_(16))
+    browser_bar.addSubview_(refresh_btn)
+
+    # Address field (read-only)
+    addr_field = NSTextField.alloc().initWithFrame_(
+        NSMakeRect(108, 6, bar_width - 116, 24)
+    )
+    addr_field.setEditable_(False)
+    addr_field.setBezeled_(True)
+    addr_field.setDrawsBackground_(True)
+    addr_field.setFont_(AppKit.NSFont.systemFontOfSize_(13))
+    addr_field.setStringValue_("https://psnprofiles.com")
+    browser_bar.addSubview_(addr_field)
+
+    # --- Button actions ---
+    class BrowserBarHelper(NSObject):
+        def initWithBrowser_andAddrField_(self, browser, addr_field):
+            self = objc.super(BrowserBarHelper, self).init()
+            self.browser = browser
+            self.addr_field = addr_field
+            return self
+
+        def goBack_(self, sender):
+            if self.browser.canGoBack():
+                self.browser.goBack()
+
+        def goForward_(self, sender):
+            if self.browser.canGoForward():
+                self.browser.goForward()
+
+        def refresh_(self, sender):
+            self.browser.reload()
+
+    browser_bar_helper = BrowserBarHelper.alloc(
+    ).initWithBrowser_andAddrField_(browser, addr_field)
+    back_btn.setTarget_(browser_bar_helper)
+    back_btn.setAction_("goBack:")
+    fwd_btn.setTarget_(browser_bar_helper)
+    fwd_btn.setAction_("goForward:")
+    refresh_btn.setTarget_(browser_bar_helper)
+    refresh_btn.setAction_("refresh:")
+
+    # --- Update address field on navigation ---
+    class BrowserDelegate(NSObject):
+        def initWithBrowser_andAddrField_(self, browser, addr_field):
+            self = objc.super(BrowserDelegate, self).init()
+            self._browser = browser
+            self.addr_field = addr_field
+            return self
+
+        def webView_didFinishNavigation_(self, webview, nav):
+            js = "document.body.style.zoom='0.5';"
+            self._browser.evaluateJavaScript_completionHandler_(js, None)
+            # Update address field
+            url = str(webview.URL().absoluteString())
+            self.addr_field.setStringValue_(url)
+
+    browser_delegate = BrowserDelegate.alloc(
+    ).initWithBrowser_andAddrField_(browser, addr_field)
+    browser.setNavigationDelegate_(browser_delegate)
+
+    # --- Add "Open Guide" button centered in the right half ---
+    btn_width = 160
+    btn_height = 40
+    btn_x = left_panel_width + \
+        ((window_width - left_panel_width) - btn_width) // 2
+    btn_y = (window_height - btn_height) // 2
+
+    # Add browser.png above the button
+    browser_img_path = resource_path("data/browser.png")
+    browser_img = NSImage.alloc().initWithContentsOfFile_(browser_img_path)
+    img_width = 64
+    img_height = 64
+    img_x = left_panel_width + \
+        ((window_width - left_panel_width) - img_width) // 2
+    img_y = btn_y + btn_height + 20  # 20px above the button
+
+    browser_img_view = NSImageView.alloc().initWithFrame_(
+        NSMakeRect(img_x, img_y, img_width, img_height)
+    )
+    browser_img_view.setImage_(browser_img)
+    browser_img_view.setImageScaling_(
+        AppKit.NSImageScaleProportionallyUpOrDown)
+    visual_effect.addSubview_(browser_img_view)
+
+    open_guide_btn = NSButton.alloc().initWithFrame_(
+        NSMakeRect(btn_x, btn_y, btn_width, btn_height)
+    )
+    open_guide_btn.setTitle_("Open Guide")
+    open_guide_btn.setBezelStyle_(AppKit.NSBezelStyleRounded)
+    open_guide_btn.setFont_(AppKit.NSFont.systemFontOfSize_(12))  # Normal font
+    visual_effect.addSubview_(open_guide_btn)
+
+    # --- Button action to show browser and bar, and hide itself and image ---
+    class OpenGuideHelper(NSObject):
+        def initWithBrowser_andButton_andImage_andBar_(self, browser, button, img_view, bar):
+            self = objc.super(OpenGuideHelper, self).init()
+            self.browser = browser
+            self.button = button
+            self.img_view = img_view
+            self.bar = bar
+            return self
+
+        def openGuide_(self, sender):
+            self.browser.setHidden_(False)
+            self.button.setHidden_(True)
+            self.img_view.setHidden_(True)
+            self.bar.setHidden_(False)
+
+    open_guide_helper = OpenGuideHelper.alloc(
+    ).initWithBrowser_andButton_andImage_andBar_(browser, open_guide_btn, browser_img_view, browser_bar)
+    open_guide_btn.setTarget_(open_guide_helper)
+    open_guide_btn.setAction_("openGuide:")
+
+    # Set initial window size to collapsed (left panel only)
+    collapsed_width = left_panel_width
+    expanded_width = window_width
+    window.setFrame_display_animate_(
+        NSMakeRect(x, y, collapsed_width, window_height), True, False
+    )
+
+    # Make window resizable with reasonable min/max
+    window.setMinSize_(AppKit.NSMakeSize(collapsed_width, window_height))
+    window.setMaxSize_(AppKit.NSMakeSize(expanded_width, window_height))
+
+    # Make overlays and browser autoresize
+    visual_effect.setAutoresizingMask_(
+        AppKit.NSViewWidthSizable | AppKit.NSViewHeightSizable)
+    right_overlay.setAutoresizingMask_(
+        AppKit.NSViewWidthSizable | AppKit.NSViewHeightSizable)
+    browser.setAutoresizingMask_(
+        AppKit.NSViewWidthSizable | AppKit.NSViewHeightSizable)
+    browser_bar.setAutoresizingMask_(AppKit.NSViewWidthSizable)
+
+    # Hide browser and bar initially
+    browser.setHidden_(True)
+    browser_bar.setHidden_(True)
+
+    # Add toggle button to left panel
+    toggle_guide_btn = NSButton.alloc().initWithFrame_(
+        NSMakeRect((left_panel_width - 140) // 2, 30, 140, 36)
+    )
+    toggle_guide_btn.setTitle_("Show Guide")
+    toggle_guide_btn.setBezelStyle_(AppKit.NSBezelStyleRounded)
+    toggle_guide_btn.setFont_(AppKit.NSFont.systemFontOfSize_(14))
+    toggle_guide_btn.setAutoresizingMask_(
+        AppKit.NSViewMinXMargin | AppKit.NSViewMaxXMargin
+    )
+    left_panel.addSubview_(toggle_guide_btn)
+
+    class GuideToggleHelper(NSObject):
+        def initWithWindow_andBrowser_andBar_andBtn_andImg_andOpenBtn_(self, window, browser, browser_bar, toggle_btn, img_view, open_guide_btn):
+            self = objc.super(GuideToggleHelper, self).init()
+            self.window = window
+            self.browser = browser
+            self.browser_bar = browser_bar
+            self.toggle_btn = toggle_btn
+            self.img_view = img_view
+            self.open_guide_btn = open_guide_btn
+            self.expanded = False
+            return self
+
+        def toggleGuide_(self, sender):
+            frame = self.window.frame()
+            if not self.expanded:
+                # Expand window to show right half
+                new_width = 840
+                self.window.setFrame_display_animate_(
+                    NSMakeRect(frame.origin.x, frame.origin.y,
+                               new_width, frame.size.height), True, True
+                )
+                self.browser.setHidden_(False)
+                self.browser_bar.setHidden_(False)
+                self.toggle_btn.setTitle_("Hide Guide")
+                # Hide image and open_guide_btn
+                self.img_view.setHidden_(True)
+                self.open_guide_btn.setHidden_(True)
+                self.expanded = True
+            else:
+                # Collapse window to left half only
+                new_width = 420
+                self.window.setFrame_display_animate_(
+                    NSMakeRect(frame.origin.x, frame.origin.y,
+                               new_width, frame.size.height), True, True
+                )
+                self.browser.setHidden_(True)
+                self.browser_bar.setHidden_(True)
+                self.toggle_btn.setTitle_("Show Guide")
+                # Show image and open_guide_btn
+                self.img_view.setHidden_(False)
+                self.open_guide_btn.setHidden_(False)
+                self.expanded = False
+
+    guide_toggle_helper = GuideToggleHelper.alloc().initWithWindow_andBrowser_andBar_andBtn_andImg_andOpenBtn_(
+        window, browser, browser_bar, toggle_guide_btn, browser_img_view, open_guide_btn)
+    toggle_guide_btn.setTarget_(guide_toggle_helper)
+    toggle_guide_btn.setAction_("toggleGuide:")
+
+    # Add left panel view
+    left_panel = AppKit.NSView.alloc().initWithFrame_(
+        NSMakeRect(0, 0, left_panel_width, window_height)
+    )
+    left_panel.setAutoresizingMask_(AppKit.NSViewHeightSizable)
+    visual_effect.addSubview_(left_panel)
+
+    main_window = window
     window.makeKeyAndOrderFront_(None)
     AppKit.NSApp.run()
 
@@ -511,8 +839,8 @@ class ClickableBannerView(NSImageView):
             if url:
                 self.config["banner_path"] = url.path()
                 save_config(self.config)
+                # Load and crop the new image
                 new_img = NSImage.alloc().initWithContentsOfFile_(url.path())
-                # Crop/resize the banner to fit the view
                 frame = self.frame()
                 new_img = crop_to_banner(new_img, int(
                     frame.size.width), int(frame.size.height))
@@ -548,6 +876,43 @@ def crop_to_banner(nsimage, target_width, target_height):
     )
     cropped.unlockFocus()
     return cropped
+
+
+class ToggleTodoHelper(NSObject):
+    def initWithWindow_andTodoVisual_andButton_(self, window, todo_visual, toggle_btn):
+        self = objc.super(ToggleTodoHelper, self).init()
+        self.window = window
+        self.todo_visual = todo_visual
+        self.toggle_btn = toggle_btn
+        self.expanded = True  # Start expanded
+        return self
+
+    def toggleTodo_(self, sender):
+        frame = self.window.frame()
+        if self.expanded:
+            # Shrink window and hide to-do panel
+            new_frame = NSMakeRect(
+                frame.origin.x,
+                frame.origin.y,
+                420,  # window_width_collapsed
+                470
+            )
+            self.window.setFrame_display_animate_(new_frame, True)
+            self.todo_visual.setHidden_(True)
+            self.toggle_btn.setTitle_("Show To-Do")
+            self.expanded = False
+        else:
+            # Expand window and show to-do panel
+            new_frame = NSMakeRect(
+                frame.origin.x,
+                frame.origin.y,
+                840,  # window_width_expanded
+                470
+            )
+            self.window.setFrame_display_animate_(new_frame, True)
+            self.todo_visual.setHidden_(False)
+            self.toggle_btn.setTitle_("Hide To-Do")
+            self.expanded = True
 
 
 if __name__ == "__main__":
