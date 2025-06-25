@@ -4,6 +4,7 @@ import csv
 import os
 import subprocess
 from PIL import Image, ImageDraw
+import AppKit
 
 DATA_DIR = "data"
 TROPHY_CSV = os.path.join(DATA_DIR, "trophies.csv")
@@ -123,4 +124,6 @@ class PSNTrophyMenuApp(rumps.App):
 
 
 if __name__ == '__main__':
+    AppKit.NSApplication.sharedApplication().setActivationPolicy_(
+        AppKit.NSApplicationActivationPolicyAccessory)
     PSNTrophyMenuApp().run()
