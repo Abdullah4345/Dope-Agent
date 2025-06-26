@@ -324,7 +324,7 @@ def open_native_window():
     AppKit.NSApplication.sharedApplication()
     NSApp.activateIgnoringOtherApps_(True)
     screen_frame = AppKit.NSScreen.mainScreen().frame()
-    window_width = 840
+    window_width = 1040  # was 840
     window_height = 470
     left_panel_width = 420
 
@@ -524,10 +524,10 @@ def open_native_window():
     )
 
     # --- Modern browser bar (right side, above browser) ---
-    bar_height = 60  # or 50, but use only one value!
+    bar_height = 60
     bar_y = window_height - bar_height
     bar_x = left_panel_width
-    bar_width = window_width - left_panel_width
+    bar_width = window_width - left_panel_width  # now 620
 
     browser_bar = NSVisualEffectView.alloc().initWithFrame_(
         NSMakeRect(bar_x, bar_y, bar_width, bar_height)
@@ -543,9 +543,9 @@ def open_native_window():
     browser = WKWebView.alloc().initWithFrame_configuration_(
         NSMakeRect(
             left_panel_width,
-            0,  # y=0, bottom of window
-            window_width - left_panel_width,
-            window_height - bar_height  # leave space for nav bar
+            0,
+            window_width - left_panel_width,  # now 620
+            window_height - bar_height
         ),
         config
     )
@@ -736,9 +736,12 @@ def open_native_window():
 
         def toggleGuide_(self, sender):
             frame = self.window.frame()
+            # Use the full window_width variable for expansion
+            full_width = 1040  # Match your window_width above
+            collapsed_width = 420  # Match your left_panel_width
             if not self.expanded:
                 # Expand window to show right half
-                new_width = 840
+                new_width = full_width
                 self.window.setFrame_display_animate_(
                     NSMakeRect(frame.origin.x, frame.origin.y,
                                new_width, frame.size.height), True, True
@@ -752,7 +755,7 @@ def open_native_window():
                 self.expanded = True
             else:
                 # Collapse window to left half only
-                new_width = 420
+                new_width = collapsed_width
                 self.window.setFrame_display_animate_(
                     NSMakeRect(frame.origin.x, frame.origin.y,
                                new_width, frame.size.height), True, True
