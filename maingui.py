@@ -323,16 +323,21 @@ def open_native_window():
 
     AppKit.NSApplication.sharedApplication()
     NSApp.activateIgnoringOtherApps_(True)
-    screen_frame = AppKit.NSScreen.mainScreen().frame()
-    window_width = 1040  # was 840
+    window_width = 1240
     window_height = 470
     left_panel_width = 420
+    collapsed_width = left_panel_width
+    expanded_width = window_width
 
-    x = (screen_frame.size.width - window_width) / 2
+    screen_frame = AppKit.NSScreen.mainScreen().frame()
+    # Center for collapsed and expanded
+    collapsed_x = (screen_frame.size.width - collapsed_width) / 2
+    expanded_x = (screen_frame.size.width - expanded_width) / 2
     y = (screen_frame.size.height - window_height) / 2
 
+    # Start window in collapsed (profile only) mode, centered
     window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-        NSMakeRect(x, y, window_width, window_height),
+        NSMakeRect(collapsed_x, y, collapsed_width, window_height),
         NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskFullSizeContentView | AppKit.NSWindowStyleMaskResizable,
         NSBackingStoreBuffered,
         False
@@ -527,7 +532,7 @@ def open_native_window():
     bar_height = 60
     bar_y = window_height - bar_height
     bar_x = left_panel_width
-    bar_width = window_width - left_panel_width  # now 620
+    bar_width = window_width - left_panel_width  # now 820
 
     browser_bar = NSVisualEffectView.alloc().initWithFrame_(
         NSMakeRect(bar_x, bar_y, bar_width, bar_height)
@@ -539,19 +544,25 @@ def open_native_window():
     visual_effect.addSubview_(browser_bar)
 
     # --- Add browser to the right side, initially hidden ---
-    config = WKWebViewConfiguration.alloc().init()
+    webview_config = WKWebViewConfiguration.alloc().init()
     browser = WKWebView.alloc().initWithFrame_configuration_(
         NSMakeRect(
             left_panel_width,
             0,
-            window_width - left_panel_width,  # now 620
+            window_width - left_panel_width,  # now 820
             window_height - bar_height
         ),
-        config
+        webview_config
     )
     browser.setAutoresizingMask_(
         AppKit.NSViewWidthSizable | AppKit.NSViewHeightSizable)
-    url = AppKit.NSURL.URLWithString_("https://psnprofiles.com")
+    # Username from config
+    username = config.get("username", "").strip()
+    if username:
+        profile_url = f"https://psnprofiles.com/{username}"
+    else:
+        profile_url = "https://psnprofiles.com"
+    url = AppKit.NSURL.URLWithString_(profile_url)
     request = AppKit.NSURLRequest.requestWithURL_(url)
     browser.loadRequest_(request)
     browser.setHidden_(True)
@@ -577,13 +588,14 @@ def open_native_window():
 
     # Address field (read-only)
     addr_field = NSTextField.alloc().initWithFrame_(
-        NSMakeRect(108, 6, bar_width - 116, 24)
+        NSMakeRect(108, 6, bar_width - 116, 24)  # bar_width is now 820
     )
     addr_field.setEditable_(False)
     addr_field.setBezeled_(True)
     addr_field.setDrawsBackground_(True)
     addr_field.setFont_(AppKit.NSFont.systemFontOfSize_(13))
-    addr_field.setStringValue_("https://psnprofiles.com")
+    # <--- Set the address field to the actual URL
+    addr_field.setStringValue_(profile_url)
     browser_bar.addSubview_(addr_field)
 
     # --- Button actions ---
@@ -623,7 +635,7 @@ def open_native_window():
             return self
 
         def webView_didFinishNavigation_(self, webview, nav):
-            js = "document.body.style.zoom='0.5';"
+            js = "document.body.style.zoom='0.7';"
             self._browser.evaluateJavaScript_completionHandler_(js, None)
             # Update address field
             url = str(webview.URL().absoluteString())
@@ -641,13 +653,14 @@ def open_native_window():
     btn_y = (window_height - btn_height) // 2
 
     # Add browser.png above the button
-    browser_img_path = resource_path("data/browser.png")
-    browser_img = NSImage.alloc().initWithContentsOfFile_(browser_img_path)
     img_width = 64
     img_height = 64
     img_x = left_panel_width + \
         ((window_width - left_panel_width) - img_width) // 2
     img_y = btn_y + btn_height + 20  # 20px above the button
+
+    browser_img_path = resource_path("data/browser.png")
+    browser_img = NSImage.alloc().initWithContentsOfFile_(browser_img_path)
 
     browser_img_view = NSImageView.alloc().initWithFrame_(
         NSMakeRect(img_x, img_y, img_width, img_height)
@@ -687,10 +700,8 @@ def open_native_window():
     open_guide_btn.setAction_("openGuide:")
 
     # Set initial window size to collapsed (left panel only)
-    collapsed_width = left_panel_width
-    expanded_width = window_width
     window.setFrame_display_animate_(
-        NSMakeRect(x, y, collapsed_width, window_height), True, False
+        NSMakeRect(collapsed_x, y, collapsed_width, window_height), True, False
     )
 
     # Make window resizable with reasonable min/max
@@ -735,35 +746,42 @@ def open_native_window():
             return self
 
         def toggleGuide_(self, sender):
-            frame = self.window.frame()
-            # Use the full window_width variable for expansion
-            full_width = 1040  # Match your window_width above
-            collapsed_width = 420  # Match your left_panel_width
+            screen_frame = AppKit.NSScreen.mainScreen().frame()
+            full_width = 1240
+            collapsed_width = 420
+            expanded_x = (screen_frame.size.width - full_width) / 2
+            collapsed_x = (screen_frame.size.width - collapsed_width) / 2
+            y = self.window.frame().origin.y  # Keep current y
+
             if not self.expanded:
-                # Expand window to show right half
-                new_width = full_width
+                # Expand window to show right half, centered
                 self.window.setFrame_display_animate_(
-                    NSMakeRect(frame.origin.x, frame.origin.y,
-                               new_width, frame.size.height), True, True
+                    NSMakeRect(expanded_x, y, full_width,
+                               self.window.frame().size.height), True, True
                 )
+                # Update browser and bar frames
+                self.browser.setFrame_(NSMakeRect(
+                    420, 0, 820, 410  # 1240-420=820, height minus bar
+                ))
+                self.browser_bar.setFrame_(NSMakeRect(
+                    420, 410, 820, 60  # bar at top of right panel
+                ))
                 self.browser.setHidden_(False)
                 self.browser_bar.setHidden_(False)
                 self.toggle_btn.setTitle_("Hide Guide")
-                # Hide image and open_guide_btn
                 self.img_view.setHidden_(True)
                 self.open_guide_btn.setHidden_(True)
                 self.expanded = True
             else:
-                # Collapse window to left half only
-                new_width = collapsed_width
+                # Collapse window to left half only, centered
                 self.window.setFrame_display_animate_(
-                    NSMakeRect(frame.origin.x, frame.origin.y,
-                               new_width, frame.size.height), True, True
+                    NSMakeRect(collapsed_x, y, collapsed_width,
+                               self.window.frame().size.height), True, True
                 )
+                # Hide browser and bar, reset their frames if needed
                 self.browser.setHidden_(True)
                 self.browser_bar.setHidden_(True)
                 self.toggle_btn.setTitle_("Show Guide")
-                # Show image and open_guide_btn
                 self.img_view.setHidden_(False)
                 self.open_guide_btn.setHidden_(False)
                 self.expanded = False
