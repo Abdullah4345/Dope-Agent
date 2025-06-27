@@ -831,9 +831,11 @@ def run_dashboard():
         if has_internet():
             img_path = resource_path("data/browser.png")
             show_guide_btn = True
+            guide_img_path = resource_path("data/guide.png")
         else:
             img_path = resource_path("data/internet.png")
             show_guide_btn = False
+            guide_img_path = resource_path("data/guide-no-internet.png")
 
         browser_img = NSImage.alloc().initWithContentsOfFile_(img_path)
         browser_img_view = NSImageView.alloc().initWithFrame_(
@@ -843,6 +845,9 @@ def run_dashboard():
         browser_img_view.setImageScaling_(
             AppKit.NSImageScaleProportionallyUpOrDown)
         visual_effect.addSubview_(browser_img_view)
+
+        # Use guide_img_path here
+        guide_img = NSImage.alloc().initWithContentsOfFile_(guide_img_path)
 
         open_guide_btn = NSButton.alloc().initWithFrame_(
             NSMakeRect(btn_x, btn_y, btn_width, btn_height)
@@ -857,7 +862,8 @@ def run_dashboard():
         guide_btn_x = (left_panel_width - guide_btn_size) // 2
         guide_btn_y = 30
 
-        guide_img_path = resource_path("data/guide.png")
+        # Use the same guide_img_path as above, so it matches internet status
+        # guide_img_path is already set above based on has_internet()
         guide_img = NSImage.alloc().initWithContentsOfFile_(guide_img_path)
 
         # Scale the image down to fit nicely inside the button (e.g., 22x22)
