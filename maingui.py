@@ -7,6 +7,14 @@ from Foundation import NSObject, NSMakeRect
 import AppKit
 import objc
 from WebKit import WKWebView, WKWebViewConfiguration
+from Cocoa import NSFloatingWindowLevel, NSBorderlessWindowMask
+import threading
+
+try:
+    from ScriptingBridge import SBApplication
+except ImportError:
+    # ScriptingBridge only available if pyobjc-framework-ScriptingBridge is installed
+    SBApplication = None
 
 
 def resource_path(relative_path):
@@ -278,6 +286,101 @@ class ShowTodoHelper(NSObject):
 
 
 main_window = None
+air_widget_window = None  # <-- Add this line at the top-level
+
+
+def get_current_media_info():
+    """Try to get currently playing media info from Music.app (macOS)."""
+    if SBApplication is None:
+        return None
+    music = SBApplication.applicationWithBundleIdentifier_("com.apple.Music")
+    if not music or not music.isRunning():
+        return None
+    track = music.currentTrack()
+    if not track:
+        return None
+    # Try to get artwork as NSImage
+    artwork = None
+    if track.artworks() and track.artworks().count() > 0:
+        art = track.artworks().objectAtIndex_(0)
+        if hasattr(art, 'data'):
+            data = art.data()
+            if data:
+                artwork = NSImage.alloc().initWithData_(data)
+    return {
+        "name": str(track.name() or ""),
+        "artist": str(track.artist() or ""),
+        "album": str(track.album() or ""),
+        "artwork": artwork
+    }
+
+
+def show_air_widget():
+    print("show_air_widget called")  # Debug: function called
+    global air_widget_window
+    info = get_current_media_info()
+    print(f"media info: {info}")  # Debug: print media info
+    if not info:
+        print("No media info found")  # Debug: no media
+        return  # No media playing
+
+    # Make the widget big and centered
+    widget_width = 600
+    widget_height = 220
+    screen_frame = AppKit.NSScreen.mainScreen().frame()
+    x = (screen_frame.size.width - widget_width) / 2
+    y = (screen_frame.size.height - widget_height) / 2
+
+    air_window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+        NSMakeRect(x, y, widget_width, widget_height),
+        NSBorderlessWindowMask,
+        NSBackingStoreBuffered,
+        False
+    )
+    air_window.setLevel_(NSFloatingWindowLevel)
+    air_window.setOpaque_(False)
+    air_window.setBackgroundColor_(AppKit.NSColor.clearColor())
+    air_window.setIgnoresMouseEvents_(False)
+    air_window.setMovableByWindowBackground_(True)
+
+    # Visual effect background
+    effect = NSVisualEffectView.alloc().initWithFrame_(
+        NSMakeRect(0, 0, widget_width, widget_height))
+    effect.setMaterial_(NSVisualEffectMaterialHUDWindow)
+    effect.setBlendingMode_(0)
+    effect.setState_(1)
+    air_window.setContentView_(effect)
+
+    # Artwork (large)
+    img_size = 180
+    img_view = NSImageView.alloc().initWithFrame_(
+        NSMakeRect(30, (widget_height - img_size) // 2, img_size, img_size))
+    if info["artwork"]:
+        img_view.setImage_(info["artwork"])
+    else:
+        img_view.setImage_(NSImage.imageNamed_("NSUser"))
+    img_view.setImageScaling_(AppKit.NSImageScaleProportionallyUpOrDown)
+    effect.addSubview_(img_view)
+
+    # Song name (large font)
+    name_field = NSTextField.labelWithString_(info["name"])
+    name_field.setFont_(AppKit.NSFont.boldSystemFontOfSize_(28))
+    name_field.setTextColor_(AppKit.NSColor.whiteColor())
+    name_field.setBackgroundColor_(AppKit.NSColor.clearColor())
+    name_field.setFrame_(NSMakeRect(230, 120, widget_width-250, 48))
+    effect.addSubview_(name_field)
+
+    # Artist/album (large font)
+    artist_field = NSTextField.labelWithString_(
+        f"{info['artist']} — {info['album']}")
+    artist_field.setFont_(AppKit.NSFont.systemFontOfSize_(22))
+    artist_field.setTextColor_(AppKit.NSColor.whiteColor())
+    artist_field.setBackgroundColor_(AppKit.NSColor.clearColor())
+    artist_field.setFrame_(NSMakeRect(230, 70, widget_width-250, 38))
+    effect.addSubview_(artist_field)
+
+    air_window.orderFrontRegardless_()
+    air_widget_window = air_window
 
 
 def open_native_window():
@@ -721,16 +824,38 @@ def open_native_window():
     browser.setHidden_(True)
     browser_bar.setHidden_(True)
 
-    # Add toggle button to left panel
+    # Add toggle button to left panel (as a circular image button)
+    guide_btn_size = 30  # Make the button a bit larger
+    guide_btn_x = (left_panel_width - guide_btn_size) // 2
+    guide_btn_y = 30
+
+    guide_img_path = resource_path("data/guide.png")
+    guide_img = NSImage.alloc().initWithContentsOfFile_(guide_img_path)
+
+    # Scale the image down to fit nicely inside the button (e.g., 22x22)
+    icon_size = 22
+    small_guide_img = NSImage.alloc().initWithSize_((icon_size, icon_size))
+    small_guide_img.lockFocus()
+    guide_img.drawInRect_fromRect_operation_fraction_(
+        AppKit.NSMakeRect(0, 0, icon_size, icon_size),
+        AppKit.NSMakeRect(0, 0, guide_img.size().width,
+                          guide_img.size().height),
+        AppKit.NSCompositingOperationSourceOver,
+        1.0
+    )
+    small_guide_img.unlockFocus()
+
     toggle_guide_btn = NSButton.alloc().initWithFrame_(
-        NSMakeRect((left_panel_width - 140) // 2, 30, 140, 36)
+        NSMakeRect(guide_btn_x, guide_btn_y, guide_btn_size, guide_btn_size)
     )
-    toggle_guide_btn.setTitle_("Show Guide")
-    toggle_guide_btn.setBezelStyle_(AppKit.NSBezelStyleRounded)
-    toggle_guide_btn.setFont_(AppKit.NSFont.systemFontOfSize_(14))
-    toggle_guide_btn.setAutoresizingMask_(
-        AppKit.NSViewMinXMargin | AppKit.NSViewMaxXMargin
-    )
+    toggle_guide_btn.setImage_(small_guide_img)
+    toggle_guide_btn.setBezelStyle_(AppKit.NSBezelStyleCircular)
+    toggle_guide_btn.setTitle_("")  # No text
+    toggle_guide_btn.setImageScaling_(AppKit.NSImageScaleNone)
+    toggle_guide_btn.setBordered_(False)
+    toggle_guide_btn.setWantsLayer_(True)
+    toggle_guide_btn.layer().setCornerRadius_(guide_btn_size / 2)
+    toggle_guide_btn.layer().setMasksToBounds_(True)
     left_panel.addSubview_(toggle_guide_btn)
 
     class GuideToggleHelper(NSObject):
@@ -768,7 +893,7 @@ def open_native_window():
                 ))
                 self.browser.setHidden_(False)
                 self.browser_bar.setHidden_(False)
-                self.toggle_btn.setTitle_("Hide Guide")
+
                 self.img_view.setHidden_(True)
                 self.open_guide_btn.setHidden_(True)
                 self.expanded = True
@@ -781,7 +906,7 @@ def open_native_window():
                 # Hide browser and bar, reset their frames if needed
                 self.browser.setHidden_(True)
                 self.browser_bar.setHidden_(True)
-                self.toggle_btn.setTitle_("Show Guide")
+
                 self.img_view.setHidden_(False)
                 self.open_guide_btn.setHidden_(False)
                 self.expanded = False
@@ -800,6 +925,16 @@ def open_native_window():
 
     main_window = window
     window.makeKeyAndOrderFront_(None)
+
+    def launch_air_widget():
+        import time
+        time.sleep(0.5)
+        launcher = AirWidgetLauncher.alloc().init()
+        AppKit.NSApp.performSelectorOnMainThread_withObject_waitUntilDone_(
+            "showAirWidget:", launcher, False
+        )
+    threading.Thread(target=launch_air_widget, daemon=True).start()
+
     AppKit.NSApp.run()
 
 
@@ -934,6 +1069,11 @@ class ToggleTodoHelper(NSObject):
             self.todo_visual.setHidden_(False)
             self.toggle_btn.setTitle_("Hide To-Do")
             self.expanded = True
+
+
+class AirWidgetLauncher(NSObject):
+    def showAirWidget_(self, obj):
+        show_air_widget()
 
 
 if __name__ == "__main__":

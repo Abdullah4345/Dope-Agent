@@ -1,3 +1,4 @@
+import sys
 import rumps
 import json
 import csv
@@ -6,10 +7,18 @@ import subprocess
 from PIL import Image, ImageDraw
 import AppKit
 
-DATA_DIR = "data"
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
+
+
+DATA_DIR = resource_path("data")
 TROPHY_CSV = os.path.join(DATA_DIR, "trophies.csv")
 CONFIG_JSON = os.path.join(DATA_DIR, "config.json")
-EDITOR_APP_PATH = "maingui.py"  # Update this path!
+EDITOR_APP_PATH = resource_path("maingui.py")  # Update this path!
 TEMP_ICON_PATH = os.path.join(DATA_DIR, "temp_profile_icon.png")
 
 
