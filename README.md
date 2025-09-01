@@ -28,4 +28,5 @@
 <img src="https://ik.imagekit.io/jyx7871cz/Screenshot%202025-09-01%20at%204.59.06%E2%80%AFPM.png" alt="extended" style="width: 100%;">
 </div>
 
+
 ## **_JINX_**
