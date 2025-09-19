@@ -1,5 +1,5 @@
 <div align="center">
-  <img height="200" src="https://media.giphy.com/media/PI5U4oHK2PkLkIhepR/giphy.gif" style="width: 200vw; height: 400px; object-fit: fill;" />
+  <img height="200" src="https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExcDZ1b3M2M2hmYmVydHhxbjEyOW92a3lvd2I1NzFkbmdjdXdhb2NrbiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/DMbuPB8l6zpZkPvD0I/giphy.gif" style="width: 200vw; height: 400px; object-fit: fill;" />
 </div>
 
 <h1>PSN-Agent</h1>
@@ -21,11 +21,11 @@
   </ul>
 </body>
   <h2>Slim View</h2>
-<img src="https://ik.imagekit.io/jyx7871cz/Screenshot%202025-09-01%20at%204.58.50%E2%80%AFPM.png" alt="slim" style="width: 100%;">
+<img src="https://ik.imagekit.io/jyx7871cz/Screenshot%202025-09-19%20at%2010.50.54%E2%80%AFPM.png" alt="slim" style="width: 100%;">
 </div>
 <div style="text-align: center; margin-bottom: 30px;">
   <h2>Extended View</h2>
-<img src="https://ik.imagekit.io/jyx7871cz/Screenshot%202025-09-01%20at%204.59.06%E2%80%AFPM.png" alt="extended" style="width: 100%;">
+<img src="https://ik.imagekit.io/jyx7871cz/Screenshot%202025-09-19%20at%2010.50.46%E2%80%AFPM.png" alt="extended" style="width: 100%;">
 </div>
 
 
