@@ -46,6 +46,8 @@ TROPHY_CSV = os.path.join(DATA_DIR, "trophies.csv")
 CONFIG_JSON = os.path.join(DATA_DIR, "config.json")
 TEMP_ICON_PATH = os.path.join(DATA_DIR, "temp_profile_icon.png")
 
+dashboard_window_instance = None  # <-- Add this here
+
 
 def ensure_data_files():
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -366,6 +368,7 @@ def run_dashboard():
 
     main_window = None
     air_widget_window = None  # <-- Add this line at the top-level
+    dashboard_window_instance = None  # <-- Add this line at the top-level
 
     def get_current_media_info():
         """Try to get currently playing media info from Music.app (macOS)."""
@@ -461,6 +464,11 @@ def run_dashboard():
         air_widget_window = air_window
 
     def open_native_window():
+        global dashboard_window_instance
+        if dashboard_window_instance is not None:
+            # Window already exists, bring it to front
+            dashboard_window_instance.makeKeyAndOrderFront_(None)
+            return
 
         global main_window
         ensure_data_files()
@@ -526,9 +534,10 @@ def run_dashboard():
             NSBackingStoreBuffered,
             False
         )
+        dashboard_window_instance = window  # Track the window
 
         # Make window float above others
-        window.setLevel_(AppKit.NSFloatingWindowLevel)
+        # window.setLevel_(AppKit.NSFloatingWindowLevel)
         window.setStyleMask_(AppKit.NSWindowStyleMaskTitled |
                              AppKit.NSWindowStyleMaskClosable)
         window.setFrame_display_animate_(
