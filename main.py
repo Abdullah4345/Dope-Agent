@@ -7,6 +7,7 @@ import rumps
 import AppKit
 from PIL import Image, ImageDraw
 import socket
+import objc
 
 
 # --- Shared resource path and data logic ---
@@ -960,10 +961,9 @@ def run_dashboard():
                 self.expanded = False
                 return self
 
+            @objc.typedSelector(b'v@:@')
             def toggleGuide_(self, sender):
-                if not has_internet():
-                    # Do nothing if no internet
-                    return
+                print("Guide button pressed")  # Debug
                 screen_frame = AppKit.NSScreen.mainScreen().frame()
                 full_width = 1240
                 collapsed_width = 420
@@ -971,50 +971,48 @@ def run_dashboard():
                 collapsed_x = (screen_frame.size.width - collapsed_width) / 2
                 y = self.window.frame().origin.y  # Keep current y
 
+                def update_browser_frames():
+                    frame = self.window.frame()
+                    self.browser.setFrame_(AppKit.NSMakeRect(
+                        420, 0, frame.size.width - 420, frame.size.height - 60))
+                    self.browser_bar.setFrame_(AppKit.NSMakeRect(
+                        420, frame.size.height - 60, frame.size.width - 420, 60))
+
+                AppKit.NSAnimationContext.beginGrouping()
+                context = AppKit.NSAnimationContext.currentContext()
+                context.setDuration_(0.35)  # Animation duration in seconds
+
                 if not self.expanded:
                     # Expand window to show right half, centered
-                    self.window.setFrame_display_animate_(
-                        NSMakeRect(expanded_x, y, full_width,
-                                   self.window.frame().size.height), True, True
+                    context.setCompletionHandler_(update_browser_frames)
+                    self.window.animator().setFrame_display_(
+                        AppKit.NSMakeRect(expanded_x, y, full_width, 470), True
                     )
-                    # Update browser and bar frames
-                    self.browser.setFrame_(NSMakeRect(
-                        420, 0, 820, 410  # 1240-420=820, height minus bar
-                    ))
-                    self.browser_bar.setFrame_(NSMakeRect(
-                        420, 410, 820, 60  # bar at top of right panel
-                    ))
                     self.browser.setHidden_(False)
                     self.browser_bar.setHidden_(False)
-
                     self.img_view.setHidden_(True)
                     self.open_guide_btn.setHidden_(True)
                     self.expanded = True
                 else:
                     # Collapse window to left half only, centered
-                    self.window.setFrame_display_animate_(
-                        NSMakeRect(collapsed_x, y, collapsed_width,
-                                   self.window.frame().size.height), True, True
+                    context.setCompletionHandler_(update_browser_frames)
+                    self.window.animator().setFrame_display_(
+                        AppKit.NSMakeRect(
+                            collapsed_x, y, collapsed_width, 470), True
                     )
-                    # Hide browser and bar, reset their frames if needed
                     self.browser.setHidden_(True)
                     self.browser_bar.setHidden_(True)
-
                     self.img_view.setHidden_(False)
                     self.open_guide_btn.setHidden_(False)
                     self.expanded = False
+
+                AppKit.NSAnimationContext.endGrouping()
 
         guide_toggle_helper = GuideToggleHelper.alloc().initWithWindow_andBrowser_andBar_andBtn_andImg_andOpenBtn_(
             window, browser, browser_bar, toggle_guide_btn, browser_img_view, open_guide_btn)
         toggle_guide_btn.setTarget_(guide_toggle_helper)
         toggle_guide_btn.setAction_("toggleGuide:")
-
-        # Add left panel view
-        left_panel = AppKit.NSView.alloc().initWithFrame_(
-            NSMakeRect(0, 0, left_panel_width, window_height)
-        )
-        left_panel.setAutoresizingMask_(AppKit.NSViewHeightSizable)
-        visual_effect.addSubview_(left_panel)
+        toggle_guide_btn.setEnabled_(True)
 
         main_window = window
         window.makeKeyAndOrderFront_(None)
