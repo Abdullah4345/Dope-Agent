@@ -8,9 +8,11 @@ import AppKit
 from PIL import Image, ImageDraw
 import socket
 import objc
-
+from Cocoa import NSApp
 
 # --- Draggable area class (move to top of file) ---
+
+
 class DraggableTopView(AppKit.NSView):
     def initWithWindow_(self, window):
         self = objc.super(DraggableTopView, self).init()
@@ -351,7 +353,7 @@ def run_dashboard():
                 frame.origin.x,
                 frame.origin.y,
                 840,  # window_width_expanded
-                470   # window_height
+                500   # window_height
             )
             self.window.setFrame_display_animate_(new_frame, True)
             # Update content view and visual_effect frame after animation
@@ -459,6 +461,7 @@ def run_dashboard():
         air_widget_window = air_window
 
     def open_native_window():
+
         global main_window
         ensure_data_files()
         config = load_config()
@@ -501,8 +504,11 @@ def run_dashboard():
 
         AppKit.NSApplication.sharedApplication()
         NSApp.activateIgnoringOtherApps_(True)
+        NSApp.setPresentationOptions_(
+            AppKit.NSApplicationPresentationHideMenuBar | AppKit.NSApplicationPresentationHideDock
+        )
         window_width = 1240
-        window_height = 470
+        window_height = 500
         left_panel_width = 420
         collapsed_width = left_panel_width
         expanded_width = window_width
@@ -519,6 +525,19 @@ def run_dashboard():
             AppKit.NSWindowStyleMaskFullSizeContentView | AppKit.NSWindowStyleMaskResizable | AppKit.NSWindowStyleMaskBorderless,
             NSBackingStoreBuffered,
             False
+        )
+
+        # Make window float above others
+        window.setLevel_(AppKit.NSFloatingWindowLevel)
+        window.setStyleMask_(AppKit.NSWindowStyleMaskTitled |
+                             AppKit.NSWindowStyleMaskClosable)
+        window.setFrame_display_animate_(
+            AppKit.NSMakeRect(100, 100, 420, window_height), True, False
+        )
+
+        # Hide the menu bar
+        NSApp.setPresentationOptions_(
+            AppKit.NSApplicationPresentationHideMenuBar | AppKit.NSApplicationPresentationHideDock
         )
 
         # Start window in collapsed (profile only) mode, centered
@@ -1064,7 +1083,7 @@ def run_dashboard():
                     # Expand window to show right half, centered
                     context.setCompletionHandler_(update_browser_frames)
                     self.window.animator().setFrame_display_(
-                        AppKit.NSMakeRect(expanded_x, y, full_width, 470), True
+                        AppKit.NSMakeRect(expanded_x, y, full_width, 500), True
                     )
                     self.browser.setHidden_(False)
                     self.browser_bar.setHidden_(False)
@@ -1076,7 +1095,7 @@ def run_dashboard():
                     context.setCompletionHandler_(update_browser_frames)
                     self.window.animator().setFrame_display_(
                         AppKit.NSMakeRect(
-                            collapsed_x, y, collapsed_width, 470), True
+                            collapsed_x, y, collapsed_width, 500), True
                     )
                     self.browser.setHidden_(True)
                     self.browser_bar.setHidden_(True)
@@ -1095,8 +1114,8 @@ def run_dashboard():
         # --- Transparent "X" close button at top left ---
         close_btn_size = 26
         close_btn_x = 16  # 16pt from left edge
-        close_btn_y = window_height - close_btn_size - 16  # 16pt from top edge
-
+        close_btn_y = window_height - close_btn_size - \
+            43  # 32pt from top edge (moves button down)
         close_btn = AppKit.NSButton.alloc().initWithFrame_(
             AppKit.NSMakeRect(close_btn_x, close_btn_y,
                               close_btn_size, close_btn_size)
@@ -1257,7 +1276,7 @@ def run_dashboard():
                     frame.origin.x,
                     frame.origin.y,
                     420,  # window_width_collapsed
-                    470
+                    500
                 )
                 self.window.setFrame_display_animate_(new_frame, True)
                 self.todo_visual.setHidden_(True)
@@ -1269,7 +1288,7 @@ def run_dashboard():
                     frame.origin.x,
                     frame.origin.y,
                     840,  # window_width_expanded
-                    470
+                    500
                 )
                 self.window.setFrame_display_animate_(new_frame, True)
                 self.todo_visual.setHidden_(False)
@@ -1384,6 +1403,10 @@ class PSNTrophyMenuApp(rumps.App):
 
 if __name__ == '__main__':
     if '--dashboard' in sys.argv:
+        AppKit.NSApplication.sharedApplication().setActivationPolicy_(
+            AppKit.NSApplicationActivationPolicyRegular
+        )
+        AppKit.NSApp.activateIgnoringOtherApps_(True)
         run_dashboard()
     else:
         AppKit.NSApplication.sharedApplication().setActivationPolicy_(
