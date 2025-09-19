@@ -10,6 +10,28 @@ import socket
 import objc
 
 
+# --- Draggable area class (move to top of file) ---
+class DraggableTopView(AppKit.NSView):
+    def initWithWindow_(self, window):
+        self = objc.super(DraggableTopView, self).init()
+        self.window = window
+        self.drag_start = None
+        return self
+
+    def mouseDown_(self, event):
+        self.drag_start = event.locationInWindow()
+
+    def mouseDragged_(self, event):
+        if self.drag_start is not None:
+            curr_pos = event.locationInWindow()
+            dx = curr_pos.x - self.drag_start.x
+            dy = curr_pos.y - self.drag_start.y
+            frame = self.window.frame()
+            new_origin = AppKit.NSPoint(
+                frame.origin.x + dx, frame.origin.y + dy)
+            self.window.setFrameOrigin_(new_origin)
+
+
 # --- Shared resource path and data logic ---
 def resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
@@ -491,15 +513,36 @@ def run_dashboard():
         expanded_x = (screen_frame.size.width - expanded_width) / 2
         y = (screen_frame.size.height - window_height) / 2
 
-        # Start window in collapsed (profile only) mode, centered
+        # Create the window here
         window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
             NSMakeRect(collapsed_x, y, collapsed_width, window_height),
-            NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskFullSizeContentView | AppKit.NSWindowStyleMaskResizable,
+            AppKit.NSWindowStyleMaskFullSizeContentView | AppKit.NSWindowStyleMaskResizable | AppKit.NSWindowStyleMaskBorderless,
             NSBackingStoreBuffered,
             False
         )
+
+        # Start window in collapsed (profile only) mode, centered
+        window.setTitleVisibility_(AppKit.NSWindowTitleHidden)
+        window.setTitlebarAppearsTransparent_(True)
+        window.setOpaque_(False)
+        window.setBackgroundColor_(AppKit.NSColor.clearColor())
+        window.setHasShadow_(True)
+
         window_delegate = WindowDelegate.alloc().init()
         window.setDelegate_(window_delegate)
+        # --- Add visual effect view as content view ---
+        visual_effect = NSVisualEffectView.alloc().initWithFrame_(
+            NSMakeRect(0, 0, collapsed_width, window_height)
+        )
+        window.setContentView_(visual_effect)
+
+        # --- Rounded corners ---
+        window.contentView().setWantsLayer_(True)
+        window.contentView().layer().setCornerRadius_(26)
+        window.contentView().layer().setMasksToBounds_(True)
+        visual_effect.setWantsLayer_(True)
+        visual_effect.layer().setCornerRadius_(26)
+        visual_effect.layer().setMasksToBounds_(True)
 
         config = load_config()
         username = config.get("username", "").strip()
@@ -509,12 +552,19 @@ def run_dashboard():
             window.setTitle_("Profile")
 
         window.setOpaque_(False)
-        visual_effect = NSVisualEffectView.alloc(
-        ).initWithFrame_(window.contentView().frame())
-        visual_effect.setMaterial_(NSVisualEffectMaterialHUDWindow)
-        visual_effect.setBlendingMode_(0)
-        visual_effect.setState_(1)
-        window.setContentView_(visual_effect)
+        window.setBackgroundColor_(AppKit.NSColor.clearColor())
+
+        # Now you can safely set layer properties
+        visual_effect.setWantsLayer_(True)
+        visual_effect.layer().setCornerRadius_(26)
+        visual_effect.layer().setMasksToBounds_(True)
+        visual_effect.layer().setBackgroundColor_(
+            AppKit.NSColor.clearColor().CGColor()
+        )
+        visual_effect.setMaterial_(AppKit.NSVisualEffectMaterialPopover)
+        visual_effect.setBlendingMode_(
+            AppKit.NSVisualEffectBlendingModeBehindWindow)
+        visual_effect.setState_(AppKit.NSVisualEffectStateActive)
 
         # --- Add left panel view (move this up here!) ---
         left_panel = AppKit.NSView.alloc().initWithFrame_(
@@ -674,9 +724,9 @@ def run_dashboard():
         visual_effect.addSubview_(level_label)
 
         # Banner view for profile (background)
-        banner_height = 70  # Half the profile image height (img_width // 2)
+        banner_height = 110  # Half the profile image height (img_width // 2)
         banner_width = 420
-        banner_y = 372  # Start at the very top
+        banner_y = 370  # Start at the very top
 
         banner_path = config.get("banner_path", "")
         banner_img = None
@@ -697,6 +747,34 @@ def run_dashboard():
         visual_effect.addSubview_positioned_relativeTo_(
             banner_view, AppKit.NSWindowBelow, None
         )
+
+        # Add a transparent drag handle ("__") on the banner near the top
+        handle_width = 60
+        handle_height = 18
+        handle_x = (banner_width - handle_width) // 2
+        handle_y = banner_y + banner_height - \
+            handle_height - 20  # 8pt from top of banner
+
+        class BannerDragHandle(DraggableTopView):
+            def drawRect_(self, rect):
+                handle_width = self.frame().size.width
+                handle_height = self.frame().size.height
+                # Draw a single connected rounded line ("__" with rounded ends)
+                path = AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+                    AppKit.NSMakeRect(8, handle_height // 2 -
+                                      4, handle_width - 16, 8),
+                    4, 4
+                )
+                AppKit.NSColor.whiteColor().colorWithAlphaComponent_(0.12).set()
+                path.fill()
+
+        banner_drag_handle = BannerDragHandle.alloc().initWithWindow_(window).initWithFrame_(
+            AppKit.NSMakeRect(handle_x, handle_y, handle_width, handle_height)
+        )
+        banner_drag_handle.setWantsLayer_(True)
+        banner_drag_handle.layer().setBackgroundColor_(
+            AppKit.NSColor.clearColor().CGColor())
+        visual_effect.addSubview_(banner_drag_handle)
 
         # --- Modern browser bar (right side, above browser) ---
         bar_height = 60
@@ -1014,17 +1092,59 @@ def run_dashboard():
         toggle_guide_btn.setAction_("toggleGuide:")
         toggle_guide_btn.setEnabled_(True)
 
-        main_window = window
-        window.makeKeyAndOrderFront_(None)
+        # --- Transparent "X" close button at top left ---
+        close_btn_size = 26
+        close_btn_x = 16  # 16pt from left edge
+        close_btn_y = window_height - close_btn_size - 16  # 16pt from top edge
 
-        def launch_air_widget():
-            import time
-            time.sleep(0.5)
-            launcher = AirWidgetLauncher.alloc().init()
-            AppKit.NSApp.performSelectorOnMainThread_withObject_waitUntilDone_(
-                "showAirWidget:", launcher, False
-            )
-        threading.Thread(target=launch_air_widget, daemon=True).start()
+        close_btn = AppKit.NSButton.alloc().initWithFrame_(
+            AppKit.NSMakeRect(close_btn_x, close_btn_y,
+                              close_btn_size, close_btn_size)
+        )
+        close_btn.setTitle_("✕")
+        close_btn.setFont_(AppKit.NSFont.boldSystemFontOfSize_(18))
+        close_btn.setBezelStyle_(AppKit.NSBezelStyleCircular)
+        close_btn.setBordered_(False)
+        close_btn.setWantsLayer_(True)
+        close_btn.layer().setCornerRadius_(close_btn_size / 2)
+        close_btn.layer().setBackgroundColor_(
+            AppKit.NSColor.whiteColor().colorWithAlphaComponent_(0.2).CGColor())
+        close_btn.layer().setMasksToBounds_(True)
+
+        class CloseHelper(objc.lookUpClass("NSObject")):
+            def initWithWindow_(self, window):
+                self = objc.super(CloseHelper, self).init()
+                self.window = window
+                return self
+
+            @objc.typedSelector(b'v@:@')
+            def close_(self, sender):
+                AppKit.NSApp.terminate_(None)  # Fully quit the app
+
+        close_helper = CloseHelper.alloc().initWithWindow_(window)
+        close_btn.setTarget_(close_helper)
+        close_btn.setAction_("close:")
+
+        visual_effect.addSubview_(close_btn)
+
+        # --- Draggable area at top middle ---
+        drag_area_width = 180
+        drag_area_height = 36
+        drag_area_x = (window_width - drag_area_width) // 2
+        drag_area_y = window_height - drag_area_height - 8  # 8pt from top edge
+
+        draggable_top = DraggableTopView.alloc().initWithWindow_(window).initWithFrame_(
+            AppKit.NSMakeRect(drag_area_x, drag_area_y,
+                              drag_area_width, drag_area_height)
+        )
+        draggable_top.setAutoresizingMask_(AppKit.NSViewMinYMargin)
+        draggable_top.setWantsLayer_(True)
+        draggable_top.layer().setBackgroundColor_(
+            AppKit.NSColor.clearColor().CGColor())
+        visual_effect.addSubview_(draggable_top)
+
+        # Show the window at the end
+        window.makeKeyAndOrderFront_(None)
 
         AppKit.NSApp.run()
 
